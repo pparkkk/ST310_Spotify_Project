@@ -1,0 +1,78 @@
+---
+title: "ST310 Group Project"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Spotify Datset EDA
+
+```{r}
+data <- read.csv('spotify_dataset.csv', header = TRUE)
+```
+
+# Deal with duplicate track ID
+
+``` {r}
+length(unique(data$track_id))  # 89741 unique track ID
+duplicate <- table(data$track_id) >= 2
+duplicate <- duplicate[duplicate == TRUE]
+
+same_id <- data.frame()  # the track_genre are different
+same_ind <- c()
+for (i in 1:length(duplicate)) {
+  ind <- which(data$track_id == names(duplicate[i]))
+  same_ind <- c(same_ind, ind)
+  
+  add <- data[which(data$track_id == names(duplicate[i])),]
+  add <- add[sample(nrow(add), size = 1),]
+  same_id <- rbind(same_id, add)
+}
+
+newdata <- data[-same_ind,]
+newdata <- rbind(newdata, same_id)
+```
+
+# Deal with duplicate track name
+
+```{r}
+length(unique(newdata$track_name))  # 89741 unique track ID
+duplicate_name <- table(newdata$track_name) >= 2
+duplicate_name <- duplicate_name[duplicate_name == TRUE]
+
+same_name <- data.frame()  # the track_genre are different
+same_name_ind <- c()
+for (i in 1:length(duplicate_name)) {
+  ind <- which(newdata$track_name == names(duplicate_name[i]))
+  same_name_ind <- c(same_name_ind, ind)
+  
+  add <- newdata[which(newdata$track_name == names(duplicate_name[i])),]
+  add <- add[sample(nrow(add), size = 1),]
+  same_name <- rbind(same_name, add)
+}
+
+newdata2 <- newdata[-same_name_ind,]
+newdata2 <- rbind(newdata2, same_name)
+```
+
+# Convert into factors
+
+```{r}
+# 0 for FALSE, 1 for TRUE
+newdata2$explicit <- as.numeric(as.factor(newdata2$explicit))-1
+
+# Could convert key and time_signature into factor
+
+# Convert mode into factor
+# 0 for minor, 1 for major
+newdata2$mode <- as.factor(newdata2$mode)
+```
+
+# Export to a csv file
+
+```{r}
+write.csv(newdata2, "unique_tracks.csv", row.names = FALSE)
+```
+
