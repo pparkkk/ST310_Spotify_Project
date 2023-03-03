@@ -2,9 +2,11 @@
 
 This is a course project for the ST310 Machine Learning module. We attempt to compare the performance of different prediction models in predicting the popularity of a song based on their characteristics.
 
+
 ## Brief description of dataset
 
 This is a dataset of [Spotify tracks](https://www.kaggle.com/datasets/maharshipandya/-spotify-tracks-dataset) over a range different genres, covering 114000 tracks. Each track has 21 audio features associated with it, ranging from artist name, popularity, duration, genre, ‘acousticness’, and tempo. All measures that can’t be measured directly such as ‘acousticness’, ‘danceability’, ‘instrumentalness’, have been normalised to a scale of 0-1.
+
 
 ## Variables Description
 
@@ -26,6 +28,9 @@ We will predict the popularity of a song given the following characteristics:
 14. **tempo**: The overall estimated tempo of a track in beats per minute (BPM). In musical terminology, tempo is the speed or pace of a given piece and derives directly from the average beat duration
 15. **time_signature**: An estimated time signature. The time signature (meter) is a notational convention to specify how many beats are in each bar (or measure). The time signature ranges from 3 to 7 indicating time signatures of 3/4, to 7/4.
 16. **track_genre**: The genre in which the track belongs
+
+*Source*: [Kaggle](https://www.kaggle.com/datasets/maharshipandya/-spotify-tracks-dataset)
+
 
 ## Analysis Stage
 
