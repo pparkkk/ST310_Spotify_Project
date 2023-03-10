@@ -1,0 +1,230 @@
+---
+title: "Exploratory plots"
+author: "Ruby Zhang"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+rm(list = ls())
+```
+
+# Load libraries
+```{r}
+library(tidyverse)
+library(GGally) # ggpairs()
+library(corrplot) # corrplot()
+library(gridExtra) # grid.arrange()
+library(tidymodels) # initial_split()
+library(ggplot2) # gm_scatterplot
+library(glmnet) # glmnet()
+```
+
+# Load data
+Notes: 
+- track_id unique
+- track_name not unique 
+(keep different versions by different singers, rid of different versions by the same singer)
+```{r}
+data_jenny <- read.csv("unique_tracks_genres.csv")
+final_data <- select(data_jenny, -X, -track_id, -artists, -album_name, -track_name, -track_genre)
+
+# convert into factors
+final_data$explicit <- as.numeric(as.factor(final_data$explicit))-1 # 0 for FALSE, 1 for TRUE
+final_data$mode <- as.integer(final_data$mode) # 0 for minor, 1 for major
+
+# create new dummy showing if track has >1 genre
+genres <- c("pop", "rock", "country", "jazz", "electronic", "classical", "world", "kids", "other", "rap")
+final_data$two_genre <- as.numeric(rowSums(final_data[, genres]) == 2)
+final_data$three_genre <- as.numeric(rowSums(final_data[, genres]) == 3)
+final_data$four_genre <- as.numeric(rowSums(final_data[, genres]) == 4)
+final_data$five_genre <- as.numeric(rowSums(final_data[, genres]) == 5)
+```
+
+# Exporatary analysis
+
+We can get a summary of the variables of interest. See visual representation later.
+```{r}
+summary(final_data)
+```
+
+
+## Distribution of variables wrt popularity
+```{r}
+# Histogram
+col_names <-names(final_data)
+for (i in seq_along(col_names)){
+  hist(final_data[,i], main=paste("Histogram of", col_names[[i]]))
+}
+```
+
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Generate some sample data
+data <- data.frame(x_values = rnorm(1000, mean = 0.5, sd = 0.1),
+                   y_values = rnorm(1000, mean = 0.95, sd = 0.1),
+                   variable_of_interest = rnorm(1000, mean = 2, sd = 0.1))
+
+# Create a histogram with color gradient and color coding for variable of interest
+ggplot(data, aes(x = x_values, fill = ..density.., color = variable_of_interest)) + 
+  geom_histogram(binwidth = 0.01, color = "white", aes(y = ..density..)) +
+  scale_fill_gradient(low = "blue", high = "red") +
+  scale_color_gradient(low = "green", high = "red") +
+  theme_classic() +
+  labs(title = "Histogram with Color Gradient and Color Coding",
+       x = "X Values", y = "Density", color = "Variable of Interest")
+```
+
+## Correlation plot
+```{r}
+final_data_cor1 <- cor(final_data)
+corrplot(final_data_cor1, method="square", col = rev(colorRampPalette(c("#B40F20", "#FFFFFF", "#2E3A87"))(100)), type="lower", tl.col="black", tl.srt=60, tl.cex = 0.6)
+```
+
+## ggpairs plot 
+The features selected are selected based on high correlation between factors in the correlation plot.
+```{r}
+ggpairs(final_data, columns = c("popularity", "danceability", "loudness", "instrumentalness"), lower = list(continuous = "smooth"), upper = list(continuous = "cor"))
+```
+
+## Standardised metrics
+Popularity vs: danceability, energy, speechiness, acousticness, instrumentalness, liveness, valence
+```{r}
+basic_plots <- function(x){
+  # plot without transparency  
+  plot_nt <- ggplot(final_data, aes(x = !!sym(x), y = popularity)) +
+    geom_point(alpha = 0.1)
+  # plot with transparency 
+  plot_wt <- ggplot(final_data, aes(x = !!sym(x), y = popularity)) +
+    geom_bin2d(alpha = 0.7) +
+    scale_fill_gradientn(colors = c("#440154", "#30678D", "#35B778", "#FDE724", "#FFFFFF"))
+  # Return both plots 
+  return(list(plot_nt, plot_wt))
+}
+
+metrics <- c('danceability', 'energy', 'speechiness', 'acousticness', 'instrumentalness', 'liveness', 'valence')
+for (i in metrics) {
+  plots <- basic_plots(i)
+  grid.arrange(plots[[1]], plots[[2]], ncol = 2)
+}
+```
+
+## Genre
+```{r}
+# Assign the genre name based on the dummy variables
+get_genre_name <- function(x) {
+  ifelse(x["two_genre"] == 1, "2_genres",
+    ifelse(x["three_genre"] == 1, "3_genres",
+      ifelse(x["four_genre"] == 1, "4_genres",
+        ifelse(x["five_genre"] == 1, "5_genres",
+          ifelse(x["rock"] == 1, "rock",
+            ifelse(x["country"] == 1, "country",
+              ifelse(x["jazz"] == 1, "jazz",
+                ifelse(x["electronic"] == 1, "electronic",
+                  ifelse(x["classical"] == 1, "classical",
+                    ifelse(x["world"] == 1, "world",
+                      ifelse(x["kids"] == 1, "kids",
+                        ifelse(x["other"] == 1, "other",
+                          ifelse(x["rap"] == 1, "rap", "pop")))))))))))))
+}
+# Apply the function to each row of the data frame and create a new column with the genre names
+temp_data <- data.frame(final_data)
+temp_data$genre_name <- apply(final_data[, -1], 1, get_genre_name)
+
+# Create a bar plot of mean popularity by genre
+mean_popularity <- tapply(temp_data$popularity, temp_data$genre_name, mean)
+barplot(mean_popularity, xlab = "Genre", ylab = "Mean Popularity", col = "steelblue", main = "Mean Popularity by Genre", las = 2, cex.names = 0.8)
+```
+
+# Split data
+
+```{r}
+# Split the dataset into training and testing sets
+set.seed(1)
+split <- initial_split(final_data, prop = 0.7)
+train <- training(split)
+test <- testing(split)
+
+X_train <- train[,-1]
+y_train <- train$popularity
+
+X_test <- test[,-1]
+y_test <- test$popularity
+
+```
+
+
+# Baseline model
+
+```{r}
+#sum(complete.cases(final_data))
+baseline <- lm(popularity ~ danceability, data = train)
+predictions_baseline <- augment(baseline)
+
+model_loess <- loess(popularity ~ danceability, span = 0.75, data = train)
+predictions_loess <- augment(model_loess)
+
+gm_scatterplot <- 
+  ggplot(final_data, aes(x = danceability, y = popularity)) +
+  geom_point()
+gm_scatterplot
+
+gm_scatterplot +
+  geom_line(data = predictions_baseline, size = 1,
+            color = "blue",
+            linetype = "dashed",
+            aes(x = danceability, y = .fitted)) +
+  geom_line(data = predictions_loess, size = 1,
+            color = "green",
+            aes(x = danceability, y = .fitted)) 
+
+
+#summary(baseline)
+```
+
+# Ridge and Lasso
+```{r}
+# gaussian is for quantitative outcome
+ridge_fit <- glmnet(X_train, y_train,
+                    family = "gaussian", 
+                    alpha = 0)
+lasso_fit <- glmnet(X_train, y_train,
+                    family = "gaussian",
+                    alpha = 1)
+```
+
+```{r}
+lam <- 0.8
+cbind(coef(ridge_fit, s = lam), coef(lasso_fit, s = lam)) # combining two columns together, the first column is ridge, and the second col is lasso
+plot(ridge_fit, xvar = "lambda")
+plot(lasso_fit, xvar = "lambda")
+```
+
+Training accuracy for ridge - mean square error (MSE)
+
+```{r}
+ridge_fit_predict <- predict(ridge_fit, 
+        # type = "class", # "class is for classification
+        newx = X_train,
+        s = lam)
+MSE_ridge <- mean((ridge_fit_predict - Y_train)^2)
+MSE_ridge
+```
+
+Test accuracy for ridge - mean square error (MSE)
+
+```{r}
+ridge_fit_predict <-predict(ridge_fit, 
+        # type = "class",
+        newx = X_test,
+        s = lam)   
+MSE_ridge <- mean((ridge_fit_predict - Y_test)^2)
+MSE_ridge
+```
+
+
