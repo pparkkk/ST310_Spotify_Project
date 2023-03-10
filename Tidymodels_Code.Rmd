@@ -1,0 +1,129 @@
+---
+title: "Tidymodels Code"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# ST310: Tidymodels Code
+
+## Simulate Some Data for Regression
+
+```{r}
+n <- 1000
+p <- 20
+X = matrix(rnorm(n*p), nrow = n, ncol = p)
+true_beta <- c(rep(2,2), rep(5,3), rep(7,3), rep(0.5,2), rep(0,10))
+
+# shuffle true_beta
+true_beta <- sample(true_beta, size = p)
+
+y <- X %*% true_beta 
+
+data <- data.frame(y = y, X = X)
+```
+
+## Set up the Tidymodels Framework
+
+```{r, message = FALSE}
+library(tidyverse)
+library(tidymodels)
+
+# Split data into training and test set
+data_split <- initial_split(data)
+data_train <- training(data_split)
+data_test <- testing(data_split)
+
+# Cross-validation for tuning the parameters
+data_cv <- vfold_cv(data_train, v = 10)
+
+# Pre-process the model
+data_recipe <- data_train %>%
+  recipe(y ~ .) %>%
+  prep()
+```
+
+## LASSO / Ridge / Elastic-net
+
+```{r}
+# Model specification = penalised linear regression
+pen_reg_y <- linear_reg(penalty = tune('P'), mixture = tune('M')) %>%
+  set_engine('glmnet')
+
+# Set up the workflow
+pen_reg_wf <- workflow() %>%
+  add_recipe(data_recipe) %>%
+  add_model(pen_reg_y)
+
+# Tune the parameters
+fit_pen_reg <- tune_grid(pen_reg_wf,
+                         grid = data.frame(P = 2^seq(-3, 2, by = 1),
+                                           M = seq(0, 1, by = 0.2)),
+                         data_cv,
+                         metrics = metric_set(rmse, mae, rsq),
+                         control = control_grid(save_pred = TRUE))
+fit_pen_reg %>% autoplot()  # plot the result for each value of the parameters
+
+# Select the best model with the smallest cross-validation rmse
+pen_reg_best <- fit_pen_reg %>%
+  select_best(metric = 'rmse') 
+pen_reg_best   # print the best model
+
+### After getting the best parameter, can now return to the normal function
+
+# Fit the final model
+pen_reg_final <- finalize_model(pen_reg_y, pen_reg_best)
+
+# Predict on the test data with the final model
+pen_reg_test <- pen_reg_wf %>%
+  update_model(pen_reg_final) %>%
+  last_fit(split = data_split) %>%
+  collect_metrics()
+pen_reg_test  # print the result
+```
+
+
+## Random Forest
+
+```{r}
+# Model specification = penalised linear regression
+rf_y <- rand_forest(trees = 500, mtry = tune('N'), min_n = tune('D')) %>%
+  set_mode('regression') %>%
+  set_engine('randomForest')
+
+# Set up the workflow
+rf_wf <- workflow() %>%
+  add_recipe(data_recipe) %>%
+  add_model(rf_y)
+
+# Tune the parameters
+fit_rf <- tune_grid(rf_wf,
+                         grid = data.frame(N = seq(2,18, by = 4),
+                                           D = c(3, 5, 10, 20, 25)),
+                         data_cv,
+                         metrics = metric_set(rmse, mae, rsq),
+                         control = control_grid(save_pred = TRUE))
+fit_rf %>% autoplot()  # plot the result for each value of the parameters
+
+# Select the best model with the smallest cross-validation rmse
+rf_best <- fit_rf %>%
+  select_best(metric = 'rmse') 
+rf_best   # print the best model
+
+### After getting the best parameter, can now return to the normal function
+
+# Fit the final model
+rf_final <- finalize_model(rf_y, rf_best)
+
+# Predict on the test data with the final model
+rf_test <- rf_wf %>%
+  update_model(rf_final) %>%
+  last_fit(split = data_split) %>%
+  collect_metrics()
+rf_test  # print the result
+```
+
+
+
