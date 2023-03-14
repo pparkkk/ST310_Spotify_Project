@@ -1,6 +1,6 @@
 ---
-title: "Exploratory plots"
-author: "Ruby Zhang"
+title: ""
+author: "Spotification"
 output: html_document
 ---
 
@@ -8,29 +8,50 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r}
-rm(list = ls())
-```
+# TO DO
+- create updated version of unique_tracks_genres.csv to do all the data cleaning (make this code neater)
+- [JENNY] Data cleaning 
 
-# Load libraries
-```{r}
-library(tidyverse)
-library(GGally) # ggpairs()
-library(corrplot) # corrplot()
-library(gridExtra) # grid.arrange()
-library(tidymodels) # initial_split()
-library(ggplot2) # gm_scatterplot
-library(glmnet) # glmnet()
-```
 
-# Load data
+# Project outline
+
+In this project, we analyse determinants of song popularity from a dataset on Spotify tracks. 
+
+In particular, our original dataset covers 114000 tracks. Each track has 21 audio features associated with it, ranging from artist name, popularity, duration, genre, ‘acousticness’, and tempo. All measures that cannot be measured directly such as ‘acousticness’, ‘danceability’, ‘instrumentalness’, have been normalised to a scale of 0-1.
+
+We feel it would be interesting to see what factors affect 'popuarity', and believe it is likely to be determined by the other regressors in the data set such as ‘energy’, ‘danceability’, ‘valence’ etc. This could produce valuable models by predicting which songs people will enjoy before they’ve become popular, based on the characteristic or ‘intrinsic’ value of the song and less so about the artist names attached to it. Hence this can help with ‘song recommendation’ features. 
+
+It is reasonable to assume each track is independent of another, given that songs are usually written based on new concepts. We can also assume they share the same probability distribution, since all songs are judged based on the same critera, all of which are normalised to the same scale. Hence it is reasonable to assune they are identically distrubuted.
+
+Dataset source: 
+https://www.kaggle.com/datasets/maharshipandya/-spotify-tracks-dataset 
+
+# [JENNY] Data cleaning 
+
+- problems with original dataset
+- motivation on ridding of certain aspects
+- explanation of new dataset
+
 Notes: 
 - track_id unique
 - track_name not unique 
 (keep different versions by different singers, rid of different versions by the same singer)
+
+# Load libraries and data
+
 ```{r}
-data_jenny <- read.csv("unique_tracks_genres.csv")
-final_data <- select(data_jenny, -X, -track_id, -artists, -album_name, -track_name, -track_genre)
+library(tidyverse) 
+library(GGally) # ggpairs()
+library(corrplot) # corrplot()
+library(gridExtra) # grid.arrange()
+library(ggplot2) # gm_scatterplot
+library(tidymodels) # initial_split()
+library(glmnet) # glmnet()
+```
+
+```{r}
+data_new <- read.csv("unique_tracks_genres.csv")
+final_data <- select(data_new, -X, -track_id, -artists, -album_name, -track_name, -track_genre)
 
 # convert into factors
 final_data$explicit <- as.numeric(as.factor(final_data$explicit))-1 # 0 for FALSE, 1 for TRUE
@@ -46,54 +67,36 @@ final_data$five_genre <- as.numeric(rowSums(final_data[, genres]) == 5)
 
 # Exporatary analysis
 
-We can get a summary of the variables of interest. See visual representation later.
+### Summary and visual
+
 ```{r}
 summary(final_data)
 ```
 
-
-## Distribution of variables wrt popularity
 ```{r}
-# Histogram
 col_names <-names(final_data)
 for (i in seq_along(col_names)){
   hist(final_data[,i], main=paste("Histogram of", col_names[[i]]))
 }
 ```
 
-```{r}
-# Load the ggplot2 library
-library(ggplot2)
+### Correlation plot
 
-# Generate some sample data
-data <- data.frame(x_values = rnorm(1000, mean = 0.5, sd = 0.1),
-                   y_values = rnorm(1000, mean = 0.95, sd = 0.1),
-                   variable_of_interest = rnorm(1000, mean = 2, sd = 0.1))
-
-# Create a histogram with color gradient and color coding for variable of interest
-ggplot(data, aes(x = x_values, fill = ..density.., color = variable_of_interest)) + 
-  geom_histogram(binwidth = 0.01, color = "white", aes(y = ..density..)) +
-  scale_fill_gradient(low = "blue", high = "red") +
-  scale_color_gradient(low = "green", high = "red") +
-  theme_classic() +
-  labs(title = "Histogram with Color Gradient and Color Coding",
-       x = "X Values", y = "Density", color = "Variable of Interest")
-```
-
-## Correlation plot
 ```{r}
 final_data_cor1 <- cor(final_data)
 corrplot(final_data_cor1, method="square", col = rev(colorRampPalette(c("#B40F20", "#FFFFFF", "#2E3A87"))(100)), type="lower", tl.col="black", tl.srt=60, tl.cex = 0.6)
 ```
 
-## ggpairs plot 
-The features selected are selected based on high correlation between factors in the correlation plot.
+### ggpairs plot 
+The features selected are selected based on high absolute correlation between factors in the correlation plot.
+
 ```{r}
 ggpairs(final_data, columns = c("popularity", "danceability", "loudness", "instrumentalness"), lower = list(continuous = "smooth"), upper = list(continuous = "cor"))
 ```
 
-## Standardised metrics
+### Standardised metrics
 Popularity vs: danceability, energy, speechiness, acousticness, instrumentalness, liveness, valence
+
 ```{r}
 basic_plots <- function(x){
   # plot without transparency  
@@ -114,7 +117,8 @@ for (i in metrics) {
 }
 ```
 
-## Genre
+### Genre
+
 ```{r}
 # Assign the genre name based on the dummy variables
 get_genre_name <- function(x) {
@@ -141,90 +145,131 @@ mean_popularity <- tapply(temp_data$popularity, temp_data$genre_name, mean)
 barplot(mean_popularity, xlab = "Genre", ylab = "Mean Popularity", col = "steelblue", main = "Mean Popularity by Genre", las = 2, cex.names = 0.8)
 ```
 
-# Split data
+# Modelling
+
+### Set up the Tidymodels Framework
 
 ```{r}
-# Split the dataset into training and testing sets
-set.seed(1)
-split <- initial_split(final_data, prop = 0.7)
-train <- training(split)
-test <- testing(split)
+# Define X, y, data
+X <- select(final_data, -1)
+y <- final_data$popularity
+data <- data.frame(y = y, X = X)
 
-X_train <- train[,-1]
-y_train <- train$popularity
+# Split data into training and test set
+data_split <- initial_split(data)
+data_train <- training(data_split)
+data_test <- testing(data_split)
 
-X_test <- test[,-1]
-y_test <- test$popularity
+# Cross-validation for tuning the parameters
+data_cv <- vfold_cv(data_train, v = 10)
 
+# Pre-process the model
+data_recipe <- data_train %>%
+  recipe(y ~ .) %>%
+  prep()
 ```
 
-
-# Baseline model
+### Baseline model
+Simple baseline for comparison to the more sophisticated models. Here we have chosen linear regression. 
 
 ```{r}
-#sum(complete.cases(final_data))
-baseline <- lm(popularity ~ danceability, data = train)
-predictions_baseline <- augment(baseline)
+baseline <- lm(y ~ X.explicit + X.danceability + X.instrumentalness, data = data_train)
+predictions_baseline <- predict(baseline, newdata = data_test)
 
-model_loess <- loess(popularity ~ danceability, span = 0.75, data = train)
-predictions_loess <- augment(model_loess)
+# Test metrics ------------------
+RMSE_baseline <- sqrt(mean((data_test$y - predictions_baseline)^2))
+RSQ_baseline <- cor(data_test$y, predictions_baseline)^2
 
-gm_scatterplot <- 
-  ggplot(final_data, aes(x = danceability, y = popularity)) +
-  geom_point()
-gm_scatterplot
+# Print the value
+print("Testing: ")
+cat("RMSE:", RMSE_baseline, "\n")
+cat("R-squared:", RSQ_baseline, "\n")
 
-gm_scatterplot +
-  geom_line(data = predictions_baseline, size = 1,
-            color = "blue",
-            linetype = "dashed",
-            aes(x = danceability, y = .fitted)) +
-  geom_line(data = predictions_loess, size = 1,
-            color = "green",
-            aes(x = danceability, y = .fitted)) 
+# Training metrics
 
+# Get summary statistics ------------------
+summary_stats <- summary(baseline)
+# Extract RMSE and R-squared values
+RMSE_baseline_train <- sqrt(mean(summary_stats$residuals^2))
+RSQ_baseline_train <- summary_stats$r.squared
 
-#summary(baseline)
+print("Training: ")
+cat("RMSE:", RMSE_baseline_train, "\n")
+cat("R-squared:", RSQ_baseline_train, "\n")
 ```
 
-# Ridge and Lasso
+### Lasso / Ridge / Elastic-net
+Non-baseline model that is (relatively) interpretable.
+
+  - Defines a linear regression model with Lasso regularization using the `linear_reg()` function from the `parsnip` package
+  - `tune()` used to specify the hyperparameters `penalty` (P) and `mixture` (M)
+  - `set_engine()` used to specify the modeling engine used to fit the model (here we use `glmnet`)
+  - the resulting object `pen_reg_y` is a model specification object that can be further used for model training, tuning and prediction 
+
 ```{r}
-# gaussian is for quantitative outcome
-ridge_fit <- glmnet(X_train, y_train,
-                    family = "gaussian", 
-                    alpha = 0)
-lasso_fit <- glmnet(X_train, y_train,
+# Model specification = penalised linear regression
+pen_reg_y <- linear_reg(penalty = tune('P'), mixture = tune('M')) %>%
+  set_engine('glmnet')
+
+# Set up the workflow
+pen_reg_wf <- workflow() %>%
+  add_recipe(data_recipe) %>%
+  add_model(pen_reg_y)
+
+# Tune the parameters
+fit_pen_reg <- tune_grid(pen_reg_wf,
+                         #grid = data.frame(P = 2^seq(-3, 2, by = 1),
+                                           #M = seq(0, 1, by = 0.2)),
+                         data_cv,
+                         metrics = metric_set(rmse, mae, rsq),
+                         control = control_grid(save_pred = TRUE))
+fit_pen_reg %>% autoplot()  # plot the result for each value of the parameters
+
+# Select the best model with the smallest cross-validation rmse
+pen_reg_best <- fit_pen_reg %>%
+  select_best(metric = 'rmse') 
+pen_reg_best   # print the best model
+
+### After getting the best parameter, can now return to the normal function
+
+# Fit the final model
+pen_reg_final <- finalize_model(pen_reg_y, pen_reg_best)
+
+# Predict on the test data with the final model
+pen_reg_test <- pen_reg_wf %>%
+  update_model(pen_reg_final) %>%
+  last_fit(split = data_split) %>%
+  collect_metrics()
+pen_reg_test  # print the result
+```
+
+```{r}
+P_best <- pen_reg_best[1]
+M_best <- pen_reg_best[2]
+
+glmnet_best <- glmnet(select(data_train, -1), data_train$y,
+                    family = "gaussian",
+                    alpha = M_best)
+glmnet_lasso <- glmnet(select(data_train, -1), data_train$y,
                     family = "gaussian",
                     alpha = 1)
+glmnet_ridge <- glmnet(select(data_train, -1), data_train$y,
+                    family = "gaussian",
+                    alpha = 0)
+
+plot(glmnet_best, xvar = "lambda")
 ```
 
-```{r}
-lam <- 0.8
-cbind(coef(ridge_fit, s = lam), coef(lasso_fit, s = lam)) # combining two columns together, the first column is ridge, and the second col is lasso
-plot(ridge_fit, xvar = "lambda")
-plot(lasso_fit, xvar = "lambda")
-```
+Interpretation:
 
-Training accuracy for ridge - mean square error (MSE)
 
-```{r}
-ridge_fit_predict <- predict(ridge_fit, 
-        # type = "class", # "class is for classification
-        newx = X_train,
-        s = lam)
-MSE_ridge <- mean((ridge_fit_predict - Y_train)^2)
-MSE_ridge
-```
+Comparison to baseline model:
+Predictive accuracy better. This can be seen through the lower RMSE. The R-Squared has also improved from 0.03 to 0.11. Despite this, it is still very low. This gives us reason to think perhaps the relationship is not linear. Therefore, one of the models that followed that was complex and non-linear: Random forest
 
-Test accuracy for ridge - mean square error (MSE)
 
-```{r}
-ridge_fit_predict <-predict(ridge_fit, 
-        # type = "class",
-        newx = X_test,
-        s = lam)   
-MSE_ridge <- mean((ridge_fit_predict - Y_test)^2)
-MSE_ridge
-```
+### [PARK] Gradient descent (minibatch)
 
+### [JENNY] Random forest 
+
+# Evaluation 
 
