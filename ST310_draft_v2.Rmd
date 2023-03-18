@@ -1,0 +1,639 @@
+---
+title: "ST310: Final Project"
+author: "Spotification"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# TO DO
+- create updated version of unique_tracks_genres.csv to do all the data cleaning (make this code neater)
+- [JENNY] Data cleaning 
+
+
+# 1) Executive Summary
+
+TBC
+
+# 2) Motivation
+
+Have you ever wondered what makes a song popular? Does the success comes from the characteristics of the song or the artist name? In this project, we attempt to isolate any impacts from the artists from the features of the song and determine whether songs with certain features are likely to be more popular than others.
+
+We conjecture that factors affecting 'popularity' are likely to be from other audio characteristics of a song such as ‘energy’, ‘danceability’, ‘valence’ or 'genre' etc. If a relationship exists, this could produce valuable models by predicting which songs people will enjoy before they’ve become popular, based on the ‘intrinsic’ value of the song and less so about the artist names attached to it. Hence this can help with the **song recommendation** features. 
+
+Whether audio features and popularity are related through a linear relationship or not is also of our interest. Given that the true relationship is unknown, different models are proposed and their predictive performance are compared. We start out with a **multiple linear regression** model with a few chosen predictors as our benchmark. Then, we extend this to produce a relatively interpretable models using **penalised regression** (ridge, Lasso and elastic net). **Mini-batch gradient descent** algorithm is also implemented on linear regression to see if it gives any improvement. Finally, a **random forest** model is built on the higher-dimensional version of the dataset (details are discussed below), focusing solely on the prediction accuracy. 
+
+It is reasonable to assume each track is independent of another, given that songs are usually written based on new concepts. We can also assume they share the same probability distribution, since all songs are judged based on the same criteria, all of which are normalised to the same scale. Hence it is reasonable to assume they are identically distributed.
+
+# 3) Description of the Dataset
+
+In this project, we analyse determinants of song popularity from a (dataset on Spotify tracks)[https://www.kaggle.com/datasets/maharshipandya/-spotify-tracks-dataset]. 
+
+In particular, our original dataset covers 114,000 tracks. Each track has 21 audio features associated with it, ranging from artist name, popularity, duration, genre, ‘acousticness’, and tempo. All 'intangible' measures that cannot be measured directly such as ‘acousticness’, ‘danceability’, ‘instrumentalness’ have been normalised to a scale of 0-1. 
+
+The following lists 16 variables used in the analysis. 
+
+1. **popularity**: The popularity of a track is a value between 0 and 100, with 100 being the most popular. The popularity is calculated by algorithm and is based, in the most part, on the total number of plays the track has had and how recent those plays are. Generally speaking, songs that are being played a lot now will have a higher popularity than songs that were played a lot in the past. Duplicate tracks (e.g. the same track from a single and an album) are rated independently. Artist and album popularity is derived mathematically from track popularity.
+2. **duration_ms**: The track length in milliseconds
+3. **explicit**: Whether or not the track has explicit lyrics (true = yes it does; false = no it does not OR unknown)
+4. **danceability**: Danceability describes how suitable a track is for dancing based on a combination of musical elements including tempo, rhythm stability, beat strength, and overall regularity. A value of 0.0 is least danceable and 1.0 is most danceable
+5. **energy**: Energy is a measure from 0.0 to 1.0 and represents a perceptual measure of intensity and activity. Typically, energetic tracks feel fast, loud, and noisy. For example, death metal has high energy, while a Bach prelude scores low on the scale
+6. **key**: The key the track is in. Integers map to pitches using standard Pitch Class notation. E.g. 0 = C, 1 = C♯/D♭, 2 = D, and so on. If no key was detected, the value is -1
+7. **loudness**: The overall loudness of a track in decibels (dB)
+8. **mode**: Mode indicates the modality (major or minor) of a track, the type of scale from which its melodic content is derived. Major is represented by 1 and minor is 0
+9. **speechiness**: Speechiness detects the presence of spoken words in a track. The more exclusively speech-like the recording (e.g. talk show, audio book, poetry), the closer to 1.0 the attribute value. Values above 0.66 describe tracks that are probably made entirely of spoken words. Values between 0.33 and 0.66 describe tracks that may contain both music and speech, either in sections or layered, including such cases as rap music. Values below 0.33 most likely represent music and other non-speech-like tracks
+10. **acousticness**: A confidence measure from 0.0 to 1.0 of whether the track is acoustic. 1.0 represents high confidence the track is acoustic
+11. **instrumentalness**: Predicts whether a track contains no vocals. "Ooh" and "aah" sounds are treated as instrumental in this context. Rap or spoken word tracks are clearly "vocal". The closer the instrumentalness value is to 1.0, the greater likelihood the track contains no vocal content
+12. **liveness**: Detects the presence of an audience in the recording. Higher liveness values represent an increased probability that the track was performed live. A value above 0.8 provides strong likelihood that the track is live
+13. **valence**: A measure from 0.0 to 1.0 describing the musical positiveness conveyed by a track. Tracks with high valence sound more positive (e.g. happy, cheerful, euphoric), while tracks with low valence sound more negative (e.g. sad, depressed, angry)
+14. **tempo**: The overall estimated tempo of a track in beats per minute (BPM). In musical terminology, tempo is the speed or pace of a given piece and derives directly from the average beat duration
+15. **time_signature**: An estimated time signature. The time signature (meter) is a notational convention to specify how many beats are in each bar (or measure). The time signature ranges from 3 to 7 indicating time signatures of 3/4, to 7/4.
+16. **track_genre**: The genre in which the track belongs.
+
+*Source*: [Kaggle](https://www.kaggle.com/datasets/maharshipandya/-spotify-tracks-dataset)
+
+# 4) [JENNY] Data cleaning 
+
+- problems with original dataset
+- motivation on ridding of certain aspects
+- explanation of new dataset
+
+Notes: 
+- track_id unique
+- track_name not unique 
+(keep different versions by different singers, rid of different versions by the same singer)
+
+## Please correct the following
+We note the importance the 'genre' of a song may have on its popularity and that a track could be many genres. Therefore, we decided to create new dummy  variables for each genre (and their combinations), specifying whether a song falls into a category or not.
+
+# 5) Exploratary Data Analysis
+
+## 5.1) Load Libraries and Read in the Data
+
+We will use the `tidymodels` package to facilitate our workflow, particularly with tuning the parameters. In addition, after the optimal paramters are chosen, some models may be fitted using their own stand-alone package for further analysis. 
+
+```{r, message = FALSE}
+library(tidyverse) 
+library(tidymodels) # initial_split()
+
+library(GGally) # ggpairs()
+library(corrplot) # corrplot()
+library(gridExtra) # grid.arrange()
+library(ggplot2) # gm_scatterplot
+
+library(glmnet) # glmnet()
+library(randomForest)  # randomForest()
+```
+
+Sine we exclude the analysis of popularity based on artist names, we first filter these irrelevant columns out. 
+
+```{r}
+data_raw <- read.csv("unique_tracks_genres.csv")
+data_full <- select(data_raw, -X, -track_id, -artists, -album_name, -track_name, -track_genre)
+
+# Convert variables into numerical values 
+data_full$explicit <- as.numeric(as.factor(data_full$explicit))-1 # 0 for FALSE, 1 for TRUE
+
+# Create new dummy showing if track has >1 genre
+genres <- c("pop", "rock", "country", "jazz", "electronic", "classical", "world", "kids", "other", "rap")
+data_full$two_genre <- as.numeric(rowSums(data_full[, genres]) == 2)
+data_full$three_genre <- as.numeric(rowSums(data_full[, genres]) == 3)
+data_full$four_genre <- as.numeric(rowSums(data_full[, genres]) == 4)
+data_full$five_genre <- as.numeric(rowSums(data_full[, genres]) == 5)
+```
+
+Then, for a fair and accurate performance evaluation, the 'training' and 'test' sets of the data is being created.
+
+```{r}
+# Split data into training and test set
+data_split <- initial_split(data_full)
+data <- training(data_split)
+data_test <- testing(data_split)
+```
+
+## 5.2) Exploratary Data Analysis
+
+Before building any model, we perform an exploratory data analysis to see if there is any notable relationship that is worth exploring. 
+
+### Summary and visual
+
+```{r}
+summary(data)  # What is this for?
+```
+
+```{r}
+# Maybe choose only important ones? Eg. popularity, danceability etc.
+col_names <-names(data)
+for (i in seq_along(col_names)){
+  hist(data[,i], main=paste("Histogram of", col_names[[i]]))
+}
+```
+
+### Correlation plot
+
+```{r}
+data_cor1 <- cor(data)
+corrplot(data_cor1, method="square", col = rev(colorRampPalette(c("#B40F20", "#FFFFFF", "#2E3A87"))(100)), type="lower", tl.col="black", tl.srt=60, tl.cex = 0.6)
+```
+
+It seems like popularity doesn't seem to be linearly correlated with any of the predictors, but there are some features that seem to be more 'important' than others. So, we select certain features with high absolute correlation with popularity and explore their associations further.
+
+### ggpairs plot 
+
+Even though the magnitude of correlation seems to be low, hypothesis tests confirm that they are indeed significantly different from 0. The density plot shows that a proportion of the tracks have near-zero popularity, whilst very few are super popular. The distribution of each regressor also differ with danceability being more symmetric whereas loudness and instrumentalness are highly negatively and postively skewed, respectively. With highly skewed distributions, log-transformation could help improve the performance.
+
+```{r}
+ggpairs(data, columns = c("popularity", "danceability", "loudness", "instrumentalness"), lower = list(continuous = "smooth"), upper = list(continuous = "cor"))
+```
+
+### Standardised metrics (Is there information to be gained here?)
+
+Popularity vs: danceability, energy, speechiness, acousticness, instrumentalness, liveness, valence
+
+```{r}
+basic_plots <- function(x){
+  # plot without transparency  
+  plot_nt <- ggplot(data, aes(x = !!sym(x), y = popularity)) +
+    geom_point(alpha = 0.1)
+  # plot with transparency 
+  plot_wt <- ggplot(data, aes(x = !!sym(x), y = popularity)) +
+    geom_bin2d(alpha = 0.7) +
+    scale_fill_gradientn(colors = c("#440154", "#30678D", "#35B778", "#FDE724", "#FFFFFF"))
+  # Return both plots 
+  return(list(plot_nt, plot_wt))
+}
+
+metrics <- c('danceability', 'energy', 'speechiness', 'acousticness', 'instrumentalness', 'liveness', 'valence')
+for (i in metrics) {
+  plots <- basic_plots(i)
+  grid.arrange(plots[[1]], plots[[2]], ncol = 2)
+}
+```
+
+### Genre
+
+```{r}
+# Assign the genre name based on the dummy variables
+get_genre_name <- function(x) {
+  ifelse(x["two_genre"] == 1, "2_genres",
+    ifelse(x["three_genre"] == 1, "3_genres",
+      ifelse(x["four_genre"] == 1, "4_genres",
+        ifelse(x["five_genre"] == 1, "5_genres",
+          ifelse(x["rock"] == 1, "rock",
+            ifelse(x["country"] == 1, "country",
+              ifelse(x["jazz"] == 1, "jazz",
+                ifelse(x["electronic"] == 1, "electronic",
+                  ifelse(x["classical"] == 1, "classical",
+                    ifelse(x["world"] == 1, "world",
+                      ifelse(x["kids"] == 1, "kids",
+                        ifelse(x["other"] == 1, "other",
+                          ifelse(x["rap"] == 1, "rap", "pop")))))))))))))
+}
+# Apply the function to each row of the data frame and create a new column with the genre names
+temp_data <- data.frame(data)
+temp_data$genre_name <- apply(data[, -1], 1, get_genre_name)
+
+# Create a bar plot of mean popularity by genre
+mean_popularity <- tapply(temp_data$popularity, temp_data$genre_name, mean)
+barplot(mean_popularity, xlab = "Genre", ylab = "Mean Popularity", col = "steelblue", main = "Mean Popularity by Genre", las = 2, cex.names = 0.8)
+```
+
+# 6) Modelling
+
+## 6.1) Set up the Tidymodels Framework
+
+```{r}
+# Split data into training and validation sets
+data_split2 <- initial_split(data)
+data_train <- training(data_split2)
+data_valid <- testing(data_split2)
+
+# Define X, y, data
+ytrain <- data_train$popularity
+Xtrain <- as.matrix(select(data_train, -1))  # all regressors
+
+# Cross-validation for tuning the parameters
+data_cv <- vfold_cv(data_train, v = 10)
+
+# Pre-process the model
+data_recipe <- data_train %>%
+  recipe(popularity ~ .) %>%
+  prep()
+```
+
+## 6.2) Baseline Model
+
+We chose a multiple linear regression model with 3 parameters for a simple baseline for comparison to the more sophisticated models.
+
+### Add why you choose these
+
+```{r}
+# Fit the baseline model
+baseline <- lm(popularity ~ explicit + danceability + instrumentalness, 
+               data = data_train)
+
+# Training metrics
+summary_stats <- summary(baseline)
+
+# Extract RMSE and R-squared values
+RMSE_baseline_train <- sqrt(mean(summary_stats$residuals^2))
+RSQ_baseline_train <- summary_stats$r.squared
+
+print("Training: ")
+cat("RMSE:", RMSE_baseline_train, "\n")
+cat("R-squared:", RSQ_baseline_train, "\n")
+
+# Evaluate the model on the validation set
+predictions_baseline <- predict(baseline, newdata = data_valid)
+
+# Validation metrics
+RMSE_baseline <- sqrt(mean((data_valid$popularity - predictions_baseline)^2))
+RSQ_baseline <- cor(data_valid$popularity, predictions_baseline)^2
+
+# Print the value
+print("Validation: ")
+cat("RMSE:", RMSE_baseline, "\n")
+cat("R-squared:", RSQ_baseline, "\n")
+```
+
+### Add interpretation of the coefficients ??
+**Interpretation**:
+
+## 6.3) Penalised Regression (Ridge / Lasso / Elastic Net)
+
+This is a  non-baseline model that is (relatively) interpretable.
+
+  - Defines a linear regression model with Lasso regularization using the `linear_reg()` function from the `parsnip` package
+  - `tune()` used to specify the hyperparameters `penalty` (P) and `mixture` (M)
+  - `set_engine()` used to specify the modeling engine used to fit the model (here we use `glmnet`)
+  - the resulting object `pen_reg_y` is a model specification object that can be further used for model training, tuning and prediction 
+
+```{r}
+# Model specification for penalised linear regression
+pen_reg_y <- linear_reg(penalty = tune('P'), mixture = tune('M')) %>%
+  set_engine('glmnet')
+
+# Set up the workflow
+pen_reg_wf <- workflow() %>%
+  add_recipe(data_recipe) %>%
+  add_model(pen_reg_y)
+
+# Tune the parameters
+fit_pen_reg <- tune_grid(pen_reg_wf,
+                         #grid = data.frame(P = 2^seq(-3, 2, by = 1),
+                                           #M = seq(0, 1, by = 0.2)),
+                         data_cv,
+                         metrics = metric_set(rmse, mae, rsq),
+                         control = control_grid(save_pred = TRUE))
+
+# Plot the result for each value of the parameters
+fit_pen_reg %>% autoplot()  
+
+# Select the best model with the smallest cross-validation RMSE
+pen_reg_best <- fit_pen_reg %>%
+  select_best(metric = 'rmse') 
+pen_reg_best   # print the best model
+
+# Fit the final model
+pen_reg_final <- finalize_model(pen_reg_y, pen_reg_best)
+
+# Predict on the validation data with the final model
+pen_reg_test <- pen_reg_wf %>%
+  update_model(pen_reg_final) %>%
+  last_fit(split = data_split) %>%
+  collect_metrics()
+pen_reg_test  # print the result
+```
+
+With the optimal parameters, we use the normal `glmnet` function to investigate which predictors are being treated as 'important' in predicting popularity. 
+
+```{r}
+P_best <- pen_reg_best[1]
+M_best <- pen_reg_best[2]
+
+# Using the best mixture (elastic net)
+glmnet_best <- glmnet(Xtrain, ytrain,
+                    family = "gaussian",
+                    alpha = M_best)
+
+# Pure LASSO model
+glmnet_lasso <- glmnet(Xtrain, ytrain,
+                    family = "gaussian",
+                    alpha = 1)
+
+# Pure ridge regression
+glmnet_ridge <- glmnet(Xtrain, ytrain,
+                    family = "gaussian",
+                    alpha = 0)
+
+# Coefficient paths
+plot(glmnet_best, xvar = "lambda")
+```
+
+**Interpretation**:
+
+### Add what are the important predictors ???
+
+**Comparison to baseline model**:
+The elastic net model gives better accuracy. This can be seen through the lower RMSE. The R-Squared has also improved from 0.03 to 0.11. Despite this, it is still very low. This agrees, to some extent, with the correlation plot that perhaps the relationship is non-linear. Therefore, one of the models that followed that was complex and non-linear: Random forest ?? (sentence not finished)
+
+## 6.4) Mini-batch Gradient Descent
+
+Although it seems that the relationship is not linear, we have another go at implementing mini-batch gradient descent on linear regression with a (pseudo-Huber loss)[https://en.wikipedia.org/wiki/Huber_loss] function. 
+
+### Pseudo-Huber Loss Function
+
+Instead of minimising the sum of squares in linear regression or using the $L_1$-loss function in Lasso, we use a differentiable mixture of the two. It is a convex function, especially when close to the minimum, so ensuring that we will get a global minimum rather than a local one. The hyperparameter $\delta$ controls the steepness of the loss function. 
+
+*Source*: (Wikipedia)[https://en.wikipedia.org/wiki/Huber_loss]
+
+$$
+  L_\delta(a) = \delta^2 \Big( \sqrt{1 + \Big( \frac{a}{\delta} \Big)^2} - 1 \Big)
+$$
+where $a$ is the residuals from linear regression.
+
+```{r}
+pseudo_huber_loss <- function(y, X, beta, delta = 1.2) {
+  a <- y - X %*% beta
+  loss <- delta^2 * (sqrt(1 + (a / delta)^2) - 1)
+  return(mean(loss))
+}
+```
+
+Next, we illustrate the pseudo-Huber loss function for different values of $\delta$.
+
+```{r}
+sim_data <- data.frame(a = seq(-5, 5, length.out = 1000),
+                       delta_0.5 = numeric(1000),
+                       delta_0.8 = numeric(1000),
+                       delta_1.2 = numeric(1000))
+i <- 2
+for (delta in c(0.5, 0.8, 1.2)) {
+  sim_data[, i] <- delta^2 * (sqrt(1 + (sim_data$a / delta)^2) - 1)
+  i <- i + 1
+}
+
+ggplot(sim_data) +
+  geom_line(aes(a, delta_0.5, color = "0.5")) + 
+  geom_line(aes(a, delta_0.8, color = "0.8")) +
+  geom_line(aes(a, delta_1.2, color = "1.2")) +
+  labs(title = "Pseudo-Huber Loss Function for Different Delta",
+       x = "Residuals", y = "Pseudo-Huber Loss", color = "Delta")
+```
+
+**Comment**: The higher the value of $\delta$, the steeper the loss function gets for residuals of greater magnitude, thus penalising them more and closer approximate the $L_2$ loss function.
+
+### Gradient Function
+
+Since the pseudo-Huber loss function is differentiable everywhere, we use exact differentiation in the algorithm. Note that the result is being cross-checked with numeric differentiation.
+
+$$
+  \frac{\partial{L_\delta(a, \beta_j)}}{\partial{\beta_j}} = \frac{-a x_j}{\sqrt{1 + \Big( \frac{a}{\delta} \Big)^2}}
+  \qquad \text{for } j = 1, 2, \ldots, p
+$$
+
+```{r}
+gradient_vector <- function(y, X, beta, delta = 1.2) {
+  gradient <- rep(1, ncol(X))
+  
+  a <- y - X %*% beta
+  scale_factor <- -a / sqrt(1 + (a / delta)^2)
+  for (j in 1:ncol(X)) {
+    gradient[j] <- mean(scale_factor * X[,j])
+  }
+  return(gradient)
+}
+```
+
+### Updating the Weights
+
+For each batch of data, we then compute the gradient and update the weights (betas). The direction of the update is being controlled by the sign of the gradient. By normalising the gradient to have magnitude of 1, we control the size of the step by the learning rate. To avoid over-stepping when getting closer to the minimum, we may use adaptive learning rate.
+
+$$
+  \beta_{i+1} = \beta_i - \alpha \frac{L_{\delta}'(a;\beta_i)} {||L_{\delta}'(a; \beta_i)||_2}
+$$
+where the learning rate, $\alpha$ is a tuning parameter.
+
+```{r}
+update_beta <- function(y_batch, X_batch, beta, delta = 1.2, alpha = 0.8) {
+  gradient <- gradient_vector(y_batch, X_batch, beta, delta)
+  
+  l2_norm <- sqrt(sum(gradient)^2)
+  
+  # Update beta
+  new_beta <- beta - alpha * gradient / (l2_norm + 10^-9)  # to avoid division by 0
+  
+  return(new_beta)
+}
+```
+
+### Mini-batch Gradient Descent for 1 Iteration (Epoch)
+
+We then write a function to perform mini-batch gradient descent. 
+
+```{r}
+mini_batch_gd <- function(y, X, batch_size = 10000, 
+                          init_beta = rep(0.1, ncol(X)),
+                          delta = 1.2, alpha = 0.8) {
+  # Limit maximum number of batches to 50
+  num_batches <- min(ceiling(nrow(X)/batch_size), 50)
+  
+  for (i in 1:num_batches) {
+    # Randomly sample the batch with replacement
+    batch_index <- sample(1:nrow(X), batch_size, replace = TRUE)
+    y_batch <- y[batch_index]
+    X_batch <- X[batch_index, ]
+  
+    # Update the beta with decaying learning rate
+    updated_beta <- update_beta(y_batch, X_batch, init_beta, 
+                                delta = delta, alpha = alpha^floor(i/2))
+  
+    # Compute the new loss function
+    newloss <- pseudo_huber_loss(y, X, updated_beta, delta)
+  
+    # Compute the new gradient function
+    newgrad <- gradient_vector(y, X, updated_beta, delta)  
+  
+    init_beta <- updated_beta
+  }
+
+  return(init_beta)
+}
+```
+
+### Adding Stopping Criteria
+
+The algorithm will stop when either a certain error tolerance is reached or the algorithm has been ran for a specified number of maximum iterations.
+
+```{r}
+gradient_descent_alg <- function(y, X, tol = 1e-06, batch_size = 10000, 
+                                 init_beta = rnorm(ncol(X)), max.iter = 150,
+                                 delta = 1.2, alpha = 0.8) {
+  # 1st iteration
+  iter <- 1
+  prev_beta <- mini_batch_gd(y, X, batch_size, init_beta, delta, alpha)
+  prev_loss <- pseudo_huber_loss(y, X, prev_beta, delta)
+  
+  err_reduction <- 10 * tol
+  while (err_reduction > tol) {
+    # Next iteration of mini-batch GD
+    new_beta <- mini_batch_gd(y, X, batch_size, init_beta = prev_beta, 
+                              delta, alpha)
+    new_loss <- pseudo_huber_loss(y, X, new_beta, delta)
+
+    # Quantify the improvement
+    err_reduction <- prev_loss - new_loss
+  
+    # Update the variables
+    iter <- iter + 1
+    prev_beta <- new_beta
+    prev_loss <- new_loss
+    
+    # Limit the number of iterations to max.iter
+    if (iter == max.iter) {
+      return(prev_beta)
+    }
+  }
+
+  return(prev_beta)
+}
+```
+
+### Cross-validation to Select the Optimal Hyperparameters
+
+We have 3 hyperparameters to tune:
+1. Batch size
+2. Learning rate $\alpha$
+3. Steepness of the pseudo-Huber loss $\delta$
+
+The optimal parameters are chosen using the k-fold cross validation.
+
+```{r}
+kfold_cv <- function(y, X, k = 10, batch_size = 10000, tol = 1e-05, 
+                     max.iter = 150, init_beta = rnorm(ncol(X)), 
+                     delta = 1.2, alpha = 0.8) {
+  # Divide the dataset into k folds
+  index <- ceiling(nrow(X) / k)
+  
+  # Empty vector to store test error for each fold
+  error_vec <- c()
+  
+  # Cross-validation
+  for (fold in 1:k) {
+    start <- (fold - 1)*index + 1
+    end <- min(nrow(X), index)
+    yvalid <- y[start:end]
+    Xvalid <- X[start:end, ]
+    
+    ytrain <- y[-(start:end)]
+    Xtrain <- X[-(start:end), ]
+    
+    # Mini-batch gradient descent and calculate test error
+    beta_GD <- gradient_descent_alg(ytrain, Xtrain, tol = tol, batch_size,
+                                    init_beta = init_beta, delta, alpha)
+    test_error <- pseudo_huber_loss(yvalid, Xvalid, beta_GD, delta)
+    error_vec <- c(error_vec, test_error)
+  }
+  
+  # Return RMSE
+  return(sqrt(mean(error_vec^2)))   
+}
+```
+
+### Implementing the algorithm
+
+Finally, we are able to implement the algorithm across a grid of parameters and visualise the results.
+
+``` {r}
+y <- data$popularity
+X <- as.matrix(data[,-1])
+
+# Grid of parameters to try
+batch_size <- seq(2000, 5000, by = 1000)
+alpha <- seq(0.1, 0.9, by = 0.2)
+delta <- seq(0.5, 1.5, by = 0.5)
+
+result <- array(dim = c(length(batch_size), length(alpha), length(delta)),
+                dimnames = list(batch_size, alpha, delta))
+
+# By delta first
+for (k in 1:length(delta)) {
+  # By batch_size
+  for (i in 1:length(batch_size)) {
+    # By alpha
+    for (j in 1:length(alpha)) {
+      result[i, j, k] <- kfold_cv(y, X, k = 10, 
+                                  batch_size = batch_size[i], 
+                                  max.iter = 100, tol = 10, 
+                                  init_beta = rnorm(ncol(X)), 
+                                  delta = delta[k], alpha = alpha[j])
+    }
+  }
+}
+```
+
+Then, we visualise the results by plotting the RMSE against the batch-size for each learning rate $\alpha$ and steepness $\delta$.
+
+```{r}
+# Fix delta for each plot
+for (k in 1:length(delta)) {
+  print(ggplot(as.data.frame(result[,,k])) +
+          geom_line(aes(x = batch_size, y = result[, 1, k], col = alpha[1])) +
+          geom_line(aes(x = batch_size, y = result[, 2, k], col = alpha[2])) +
+          geom_line(aes(x = batch_size, y = result[, 3, k], col = alpha[3])) +
+          geom_line(aes(x = batch_size, y = result[, 4, k], col = alpha[4])) +
+          geom_line(aes(x = batch_size, y = result[, 5, k], col = alpha[5])) +
+          ggtitle(paste("Delta = ", delta[k], sep = "")) +
+          labs(x = "Batch Size", y = "RMSE"))
+}
+```
+
+Then, we select the optimal parameters.
+
+```{r}
+# Minimum RMSE
+min(result)
+
+# Identify the index
+which(result == min(result), arr.ind = TRUE)
+
+best_size = batch_size[which(result == min(result), arr.ind = TRUE)[1]]
+best_alpha = alpha[which(result == min(result), arr.ind = TRUE)[2]]
+best_delta = delta[which(result == min(result), arr.ind = TRUE)[3]]
+```
+
+**Comment**: This corresponds to a batch size of 2000, $\alpha$ = 0.5, $\delta$ = 0.5.
+
+### Refit the Algorithm on the Full Training Data and Predict on the Test
+
+```{r}
+gd_model <- gradient_descent_alg(y, X, tol = 1e-05, batch_size = best_size,
+                                    init_beta = rnorm(ncol(Xtest)), 
+                     delta = best_delta, alpha = best_alpha)
+
+# Test data
+ytest <- data_test$popularity
+Xtest <- as.matrix(data_test[,-1])
+
+# Prediction
+gd_pred <- Xtest %*% gd_model
+
+# Evaluatate the performance
+RMSE_gd <- sqrt(mean((ytest - gd_pred)^2))
+RSQ_gd <- cor(ytest, gd_pred)^2
+
+# Print the value
+print("Gradient Descent: ")
+cat("RMSE:", RMSE_gd, "\n")
+cat("R-squared:", RSQ_gd, "\n")
+```
+
+**Interpretation**: Add whether the model performs better or worse than baseline.
+
+
+### [JENNY] Random forest 
+
+# Evaluation 
+
