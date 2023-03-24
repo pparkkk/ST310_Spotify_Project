@@ -1,8 +1,4 @@
 ---
-title: "R Notebook"
-output: html_notebook
----
----
 title: "ST310: Final Project"
 author: "Spotification"
 output: html_document
@@ -56,12 +52,8 @@ The following lists 16 variables used in the analysis.
 15. **time_signature**: An estimated time signature. The time signature (meter) is a notational convention to specify how many beats are in each bar (or measure). The time signature ranges from 3 to 7 indicating time signatures of 3/4, to 7/4.
 16. **track_genre**: The genre in which the track belongs.
 
-*Source*: [Kaggle](https://www.kaggle.com/datasets/maharshipandya/-spotify-tracks-dataset)
 
 # 4) [JENNY] Data cleaning 
-
-There were two main issues with the dataset. One being the number of values in 'track_genre', the second being duplicate tracks, although there was a big overlap with these two issues. 
-In regards to track_genres, we originally had 114 track genres each with 1000 tracks to comprise our 114,000 rows of data. The issue with this is 
 
 - problems with original dataset
 - motivation on ridding of certain aspects
@@ -73,13 +65,13 @@ Notes:
 (keep different versions by different singers, rid of different versions by the same singer)
 
 ## Please correct the following
-We note the importance the 'genre' of a song may have on its popularity and that a track could be many genres. Therefore, we decided to create new dummy  variables for each genre (and their combinations), specifying whether a song falls into a category or not.
+We note the importance the 'genre' of a song may have on its popularity and that a track could have many genres. Therefore, we decided to create new dummy variables for each genre (and their combinations??), specifying whether a song falls into a category or not.
 
 # 5) Exploratary Data Analysis
 
 ## 5.1) Load Libraries and Read in the Data
 
-We will use the `tidymodels` package to facilitate our workflow, particularly with tuning the parameters. In addition, after the optimal paramters are chosen, some models may be fitted using their own stand-alone package for further analysis. 
+We will use the `tidymodels` package to facilitate our workflow, particularly with tuning the parameters. In addition, after the optimal parameters are chosen, some models may be fitted using their own stand-alone package for further analysis. 
 
 ```{r, message = FALSE}
 library(tidyverse) 
@@ -91,25 +83,25 @@ library(gridExtra) # grid.arrange()
 library(ggplot2) # gm_scatterplot
 
 library(glmnet) # glmnet()
-library(randomForest)  # randomForest()
+library(randomForest) # randomForest()
 ```
 
-Sine we exclude the analysis of popularity based on artist names, we first filter these irrelevant columns out. 
-```{r}
-data_full
-```
-
+Since we exclude the analysis of popularity based on artist names, we first filter these irrelevant columns out. 
 
 ```{r}
-data_raw <- read.csv('/Users/jennifercornell/Documents/GitHub/ST310_Spotify_Project/unique_data.csv')
+# Import data and save the useful features
+data_raw <- read.csv("unique_tracks_genres.csv")
 data_full <- select(data_raw, -X, -track_id, -artists, -album_name, -track_name, -track_genre)
 
 # Convert variables into numerical values 
 data_full$explicit <- as.numeric(as.factor(data_full$explicit))-1 # 0 for FALSE, 1 for TRUE
 
-# Create new dummy showing if track has >1 genre
-genres <- c("country", "jazz", "pop", "r_n_b", "rock", "classical", "metal", "other", "world", "latin", "acoustic")
-data_full$num_genres <- as.numeric(rowSums(data_full[, genres]))
+# Create new dummies showing if track has >1 genre
+genres <- c("pop", "rock", "country", "jazz", "electronic", "classical", "world", "kids", "other", "rap")
+data_full$two_genre <- as.numeric(rowSums(data_full[, genres]) == 2)
+data_full$three_genre <- as.numeric(rowSums(data_full[, genres]) == 3)
+data_full$four_genre <- as.numeric(rowSums(data_full[, genres]) == 4)
+data_full$five_genre <- as.numeric(rowSums(data_full[, genres]) == 5)
 ```
 
 Then, for a fair and accurate performance evaluation, the 'training' and 'test' sets of the data is being created.
@@ -125,18 +117,24 @@ data_test <- testing(data_split)
 
 Before building any model, we perform an exploratory data analysis to see if there is any notable relationship that is worth exploring. 
 
-### Summary and visual
+### Visualise
 
 ```{r}
-summary(data)  # What is this for?
-```
-
-```{r}
-# Maybe choose only important ones? Eg. popularity, danceability etc.
-col_names <-names(data)
-for (i in seq_along(col_names)){
-  hist(data[,i], main=paste("Histogram of", col_names[[i]]))
+# histogram plots for the non-binary 
+col_names_non_binary <- c("popularity", "danceability", "energy", "key", "loudness", "speechiness", "acousticness", "instrumentalness", "liveness", "tempo", "time_signature")
+par(mfrow = c(4, 3))
+for (i in seq_along(col_names_non_binary)){
+  hist(data[,col_names_non_binary[i]], main=col_names_non_binary[[i]])
 }
+
+# bar charts for the binary data
+col_names_binary <- c("explicit", "mode", "pop", "rock", "country", "jazz", "electronic", "classical", "world", "kids", "other", "rap", "two_genre", "three_genre", "four_genre", "five_genre")
+par(mfrow = c(4, 4)) 
+for (i in seq_along(col_names_binary)){
+  barplot(table(data[,col_names_binary[i]]), main=col_names_binary[[i]])
+}
+
+par(mfrow = c(1, 1)) # Reset the plotting area to the default (1 row and 1 column)
 ```
 
 ### Correlation plot
@@ -173,12 +171,15 @@ basic_plots <- function(x){
   return(list(plot_nt, plot_wt))
 }
 
-metrics <- c('danceability', 'energy', 'speechiness', 'acousticness', 'instrumentalness', 'liveness', 'valence')
+metrics <- c('popularity', 'danceability', 'energy', 'loudness', 'speechiness', 'acousticness', 'instrumentalness', 'liveness', 'valence')
+par(mfrow = c(4, 2)) 
 for (i in metrics) {
   plots <- basic_plots(i)
   grid.arrange(plots[[1]], plots[[2]], ncol = 2)
 }
 ```
+
+These plots show the relation between the given metric (danceability, energy, speechiness, acousticness, instrumentalness, liveness, valence) against popularity. The colour coding on the right hand side indicates areas of high density in yellow. Adding to our previous suspicion, there does not appear to be any strong linear relations with these factors to popularity. If there had been, we would see a yellow line covering the x values.
 
 ### Genre
 
@@ -235,7 +236,7 @@ data_recipe <- data_train %>%
 
 We chose a multiple linear regression model with 3 parameters for a simple baseline for comparison to the more sophisticated models.
 
-### Add why you choose these
+The reason for choosing "danceability" is because it is one of the stongest (positively) correlated with popularity. Similarly for "instrumentalness", it is the strongest negatively correlated variable to popularity. "Explicit" was chosen as we thought it could be interesting to see how this (indicator) variable affects popularity (if at all). 
 
 ```{r}
 # Fit the baseline model
@@ -264,10 +265,13 @@ RSQ_baseline <- cor(data_valid$popularity, predictions_baseline)^2
 print("Validation: ")
 cat("RMSE:", RMSE_baseline, "\n")
 cat("R-squared:", RSQ_baseline, "\n")
+
+summary(baseline)
+ggcoef(baseline)
 ```
 
-### Add interpretation of the coefficients ??
-**Interpretation**:
+**Interpretation**: 
+
 
 ## 6.3) Penalised Regression (Ridge / Lasso / Elastic Net)
 
@@ -336,7 +340,8 @@ glmnet_ridge <- glmnet(Xtrain, ytrain,
                     family = "gaussian",
                     alpha = 0)
 
-# Coefficient paths
+# Coefficients
+coef(glmnet_best)
 plot(glmnet_best, xvar = "lambda")
 ```
 
