@@ -1,0 +1,351 @@
+---
+title: "ST310: Final Project"
+author: "Spotification"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1) Executive Summary
+
+TBC
+
+# 2) Motivation
+
+Have you ever wondered what makes a song popular? Does the success comes from the characteristics of the song or the artist name? In this project, we attempt to isolate any impacts from the artists from the features of the song and determine whether songs with certain features are likely to be more popular than others.
+
+We conjecture that factors affecting 'popularity' are likely to be from other audio characteristics of a song such as ‘energy’, ‘danceability’, ‘valence’ or 'genre' etc. If a relationship exists, this could produce valuable models by predicting which songs people will enjoy before they’ve become popular, based on the ‘intrinsic’ value of the song and less so about the artist names attached to it. Hence this can help with the **song recommendation** features. 
+
+Whether audio features and popularity are related through a linear relationship or not is also of our interest. Given that the true relationship is unknown, different models are proposed and their predictive performance are compared. We start out with a **multiple linear regression** model with a few chosen predictors as our benchmark. Then, we extend this to produce a relatively interpretable models using **penalised regression** (Ridge, Lasso and Elastic net). **Mini-batch gradient descent** algorithm is also implemented on linear regression to see if it gives any improvement. Finally, a **random forest** model is built on the higher-dimensional version of the dataset (details are discussed below), focusing solely on the prediction accuracy. 
+
+It is reasonable to assume each track is independent of another, given that songs are usually written based on new concepts. We can also assume they share the same probability distribution, since all songs are judged based on the same criteria, all of which are normalised to the same scale. Hence it is reasonable to assume they are identically distributed.
+
+# 3) Description of the Dataset
+
+In this project, we analyse determinants of song popularity from a (dataset on Spotify tracks)[https://www.kaggle.com/datasets/maharshipandya/-spotify-tracks-dataset]. 
+
+In particular, our original dataset covers 114,000 tracks. Each track has 21 audio features associated with it, ranging from artist name, popularity, duration, genre, ‘acousticness’, and tempo. All 'intangible' measures that cannot be measured directly such as ‘acousticness’, ‘danceability’, ‘instrumentalness’ have been normalised to a scale of 0-1. 
+
+The following lists 16 variables used in the analysis. 
+
+1. **popularity**: The popularity of a track is a value between 0 and 100, with 100 being the most popular. The popularity is calculated by algorithm and is based, in the most part, on the total number of plays the track has had and how recent those plays are. Generally speaking, songs that are being played a lot now will have a higher popularity than songs that were played a lot in the past. Duplicate tracks (e.g. the same track from a single and an album) are rated independently. Artist and album popularity is derived mathematically from track popularity.
+2. **duration_ms**: The track length in milliseconds
+3. **explicit**: Whether or not the track has explicit lyrics (true = yes it does; false = no it does not OR unknown)
+4. **danceability**: Danceability describes how suitable a track is for dancing based on a combination of musical elements including tempo, rhythm stability, beat strength, and overall regularity. A value of 0.0 is least danceable and 1.0 is most danceable
+5. **energy**: Energy is a measure from 0.0 to 1.0 and represents a perceptual measure of intensity and activity. Typically, energetic tracks feel fast, loud, and noisy. For example, death metal has high energy, while a Bach prelude scores low on the scale
+6. **key**: The key the track is in. Integers map to pitches using standard Pitch Class notation. E.g. 0 = C, 1 = C♯/D♭, 2 = D, and so on. If no key was detected, the value is -1
+7. **loudness**: The overall loudness of a track in decibels (dB)
+8. **mode**: Mode indicates the modality (major or minor) of a track, the type of scale from which its melodic content is derived. Major is represented by 1 and minor is 0
+9. **speechiness**: Speechiness detects the presence of spoken words in a track. The more exclusively speech-like the recording (e.g. talk show, audio book, poetry), the closer to 1.0 the attribute value. Values above 0.66 describe tracks that are probably made entirely of spoken words. Values between 0.33 and 0.66 describe tracks that may contain both music and speech, either in sections or layered, including such cases as rap music. Values below 0.33 most likely represent music and other non-speech-like tracks
+10. **acousticness**: A confidence measure from 0.0 to 1.0 of whether the track is acoustic. 1.0 represents high confidence the track is acoustic
+11. **instrumentalness**: Predicts whether a track contains no vocals. "Ooh" and "aah" sounds are treated as instrumental in this context. Rap or spoken word tracks are clearly "vocal". The closer the instrumentalness value is to 1.0, the greater likelihood the track contains no vocal content
+12. **liveness**: Detects the presence of an audience in the recording. Higher liveness values represent an increased probability that the track was performed live. A value above 0.8 provides strong likelihood that the track is live
+13. **valence**: A measure from 0.0 to 1.0 describing the musical positiveness conveyed by a track. Tracks with high valence sound more positive (e.g. happy, cheerful, euphoric), while tracks with low valence sound more negative (e.g. sad, depressed, angry)
+14. **tempo**: The overall estimated tempo of a track in beats per minute (BPM). In musical terminology, tempo is the speed or pace of a given piece and derives directly from the average beat duration
+15. **time_signature**: An estimated time signature. The time signature (meter) is a notational convention to specify how many beats are in each bar (or measure). The time signature ranges from 3 to 7 indicating time signatures of 3/4, to 7/4.
+16. **track_genre**: The genre in which the track belongs.
+
+
+# 4) [JENNY] Data cleaning 
+
+- problems with original dataset
+- motivation on ridding of certain aspects
+- explanation of new dataset
+
+Notes: 
+- track_id unique
+- track_name not unique 
+(keep different versions by different singers, rid of different versions by the same singer)
+
+## Please correct the following
+We note the importance the 'genre' of a song may have on its popularity and that a track could have many genres. Therefore, we decided to create new dummy variables for each genre (and their combinations??), specifying whether a song falls into a category or not.
+
+# 5) Exploratary Data Analysis
+
+## 5.1) Load Libraries and Read in the Data
+
+We will use the `tidymodels` package to facilitate our workflow, particularly with tuning the parameters. In addition, after the optimal parameters are chosen, some models may be fitted using their own stand-alone package for further analysis. 
+
+```{r, message = FALSE}
+library(tidyverse) 
+library(tidymodels) # initial_split()
+
+library(GGally) # ggpairs()
+library(corrplot) # corrplot()
+library(gridExtra) # grid.arrange()
+library(ggplot2) # gm_scatterplot
+
+library(glmnet) # glmnet()
+library(randomForest) # randomForest()
+```
+
+Since we exclude the analysis of popularity based on artist names, we first filter these irrelevant columns out. We also convert some variables into different data types for later use, and create a new column to show many genres a track is classified under.
+
+```{r}
+# Import data and save the useful features
+data_raw <- read.csv("unique_data.csv")
+data_use <- select(data_raw, -X, -track_id, -artists, -album_name, -track_name, -track_genre)
+
+# Convert variables into numerical values 
+data_use$explicit <- as.numeric(as.factor(data_use$explicit))-1 
+
+# Create new column showing how many genres a track is
+genres <- c("country", "electronic", "jazz", "pop", "r_n_b", "rock", "classical", "metal", "other", "world", "latin", "acoustic")
+data_use$num_genres <- as.numeric(rowSums(data_use[, genres]))
+```
+
+## 5.2) Exploratary Data Analysis
+
+Before building any model, we perform an exploratory data analysis to see if there is any notable relationship that is worth exploring. 
+
+### Visualise
+
+```{r}
+# didn't include duration 
+
+# histogram plots (for the non-binary features)
+col_names_non_binary <- c("popularity", "danceability", "energy", "key", "loudness", "speechiness", "acousticness", "instrumentalness", "liveness", "valence", "tempo", "time_signature") 
+
+par(mfrow = c(4, 3))
+for (i in seq_along(col_names_non_binary)){
+  hist(data_use[,col_names_non_binary[i]], main=col_names_non_binary[[i]])
+}
+par(mfrow = c(1, 1))
+
+# Select the binary columns from the data frame
+binary_cols <- c("explicit", "mode", genres)
+
+freq_tables <- lapply(data_use[, binary_cols], table) # Create frequency table for each column
+combined_freq_table <- do.call(cbind, freq_tables) # Combine all frequency tables into one table
+t(combined_freq_table) # View the combined frequency table
+```
+
+### Correlation plot
+
+```{r}
+data_cor1 <- cor(data_use)
+corrplot(data_cor1, method="square", col = rev(colorRampPalette(c("#B40F20", "#FFFFFF", "#2E3A87"))(100)), type="lower", tl.col="black", tl.srt=60, tl.cex = 0.6)
+```
+
+It seems like popularity doesn't seem to be strongly linearly correlated with any of the predictors, but there are some features that seem to be more 'important' than others. So, we select certain features with high absolute correlation with popularity and explore their associations further.
+
+### ggpairs plot 
+
+Even though the magnitude of correlation seems to be low, hypothesis tests confirm that they are indeed significantly different from 0. The density plot shows that a proportion of the tracks have near-zero popularity, whilst very few are super popular. The distribution of each regressor also differ, with danceability being more symmetric whereas loudness and instrumentalness are highly negatively and postively skewed, respectively. With highly skewed distributions, log-transformation could help improve the performance.
+
+```{r}
+ggpairs(data_use, columns = c("popularity", "danceability", "loudness", "instrumentalness", "num_genres"), lower = list(continuous = "smooth"), upper = list(continuous = "cor"))
+```
+
+### Genre
+
+```{r}
+get_names <- function(x) {
+  ifelse(x["num_genres"] == 2, "2 genres",
+    ifelse(x["num_genres"] == 3, "3 genres",
+      ifelse(x["num_genres"] == 4, "4 genres",
+        ifelse(x["country"] == 1, "country",
+          ifelse(x["electronic"] == 1, "electronic",
+            ifelse(x["jazz"] == 1, "jazz",
+              ifelse(x["pop"] == 1, "pop",
+                ifelse(x["r_n_b"] == 1, "r_n_b",
+                  ifelse(x["rock"] == 1, "rock",
+                    ifelse(x["classical"] == 1, "classical",
+                      ifelse(x["metal"] == 1, "metal",
+                        ifelse(x["other"] == 1, "other", 
+                          ifelse(x["world"] == 1, "world",
+                            ifelse(x["latin"] == 1, "latin", "acoustic"))))))))))))))
+}
+
+temp_data <- data.frame(data_use)
+temp_data$names <- apply(data_use[, -1], 1, get_names)
+mean_popularity <- tapply(temp_data$popularity, temp_data$names, mean)
+barplot(mean_popularity, ylab = "Mean Popularity", col = "steelblue", main = "Mean Popularity by Number of Genres and Genre type", las = 2, cex.names = 0.8)
+```
+
+# 6) Modelling
+
+## 6.1) Set up the Tidymodels Framework
+
+For a fair and accurate performance evaluation, the 'training' and 'test' sets of the data is being created.
+
+```{r}
+set.seed(12345)
+
+# Split data into training and test set
+data_split <- initial_split(data_use)
+data_train <- training(data_split)
+data_test <- testing(data_split)
+
+# Define X, y, data
+ytrain <- data_train$popularity
+Xtrain <- as.matrix(select(data_train, -1,-28))  # all regressors
+
+# Cross-validation for tuning the parameters
+data_cv <- vfold_cv(data_train, v = 10)
+
+# Pre-process the model
+data_recipe <- data_train %>%
+  recipe(popularity ~ .) %>%
+  prep()
+```
+
+## 6.2) Baseline Model
+
+We chose a multiple linear regression model with 3 parameters for a simple baseline for comparison to the more sophisticated models later.
+
+The reason for choosing "danceability" is because it is one of the stongest (positively) correlated with popularity. Similarly for "classical", it is the strongest negatively correlated variable to popularity. "explicit" was chosen as we thought it could be interesting to see how this (indicator) variable affects popularity (if at all). 
+
+```{r}
+# Fit baseline model on training set
+baseline <- lm(popularity ~ explicit + danceability + speechiness, 
+               data = data_train)
+
+summary_stats <- summary(baseline)
+RMSE_baseline_train <- sqrt(mean(summary_stats$residuals^2))
+RSQ_baseline_train <- summary_stats$r.squared
+
+print("Training: ")
+cat("RMSE:", RMSE_baseline_train, "\n")
+cat("R-squared:", RSQ_baseline_train, "\n")
+
+# Fit predictions on testing set
+X <- cbind(rep(1, nrow(data_test)), data_test[,c(3,4,9)])
+predictions_baseline <- as.matrix(X) %*% as.vector(coef(baseline))
+
+RMSE_baseline <- sqrt(mean((data_test$popularity - predictions_baseline)^2))
+SSR <- sum((predictions_baseline - mean(data_test$popularity))^2)
+SSE <- sum((predictions_baseline - data_test$popularity)^2)
+SST <- sum((data_test$popularity - mean(data_test$popularity))^2)
+RSQ_baseline <- SSR/SST
+
+print("Testing: ")
+cat("RMSE:", RMSE_baseline, "\n")
+cat("R-squared:", RSQ_baseline, "\n")
+
+summary(baseline)
+ggcoef(baseline)
+```
+
+**Interpretation**
+Of the three predictors used in the baseline model, speechiness has the greateest impact. 
+Note that speechiness is normalised to be between 0 and 1. As speechiness increases by 0.1, popularity decreases by around 1.7.
+On the other hand, explicit and danceability affect popularity positively.
+
+
+### Export
+
+```{r}
+# # Convert input data into a matrix
+# test <- model.matrix(~. -1, data = data_test)
+# Create a data frame by combining outcome y with features x; then write to a csv file
+export <- data.frame(y = as.numeric(predictions_baseline))
+
+write.csv(export, "1.baseline_linear.csv", row.names=FALSE)
+```
+
+## 6.3) Penalised Regression (Ridge / Lasso / Elastic Net)
+
+This is a  non-baseline model that is (relatively) interpretable.
+
+  - Defines a linear regression model with Lasso regularization using the `linear_reg()` function from the `parsnip` package
+  - `tune()` used to specify the hyperparameters `penalty` (P) and `mixture` (M)
+  - `set_engine()` used to specify the modeling engine used to fit the model (here we use `glmnet`)
+  - the resulting object `pen_reg_y` is a model specification object that can be further used for model training, tuning and prediction 
+
+```{r}
+# Model specification for penalised linear regression
+pen_reg_y <- linear_reg(penalty = tune('P'), mixture = tune('M')) %>%
+  set_engine('glmnet')
+
+# Set up the workflow
+pen_reg_wf <- workflow() %>%
+  add_recipe(data_recipe) %>%
+  add_model(pen_reg_y)
+
+# Tune the parameters
+fit_pen_reg <- tune_grid(pen_reg_wf,
+                         data_cv,
+                         metrics = metric_set(rmse, mae, rsq),
+                         control = control_grid(save_pred = TRUE))
+
+# Plot the result for each value of the parameters
+fit_pen_reg %>% autoplot()  
+
+# Select the best model with the smallest cross-validation RMSE
+pen_reg_best <- fit_pen_reg %>%
+  select_best(metric = 'rmse') 
+pen_reg_best   # print the best model
+
+# Fit the final model
+pen_reg_final <- finalize_model(pen_reg_y, pen_reg_best)
+```
+
+With the optimal parameters, we use the normal `glmnet` function to investigate which predictors are being treated as 'important' in predicting popularity.
+
+
+```{r}
+P_best <- pen_reg_best[1]
+M_best <- pen_reg_best[2]
+
+pen_reg_model_spec <- linear_reg(penalty = P_best, mixture = M_best) %>%
+  set_engine('glmnet')
+pen_reg_fit <- fit(pen_reg_model_spec, popularity ~ ., data_test)
+
+# Predict on the validation data with the final model
+pen_reg_test <- pen_reg_wf %>%
+  update_model(pen_reg_final) %>%
+  last_fit(split = data_split) %>%
+  collect_metrics()
+pen_reg_test  # print the result
+
+# using best mixture (elastic net)
+glmnet_pre_best <- glmnet(Xtrain, ytrain,
+                    family = "gaussian",
+                    alpha = M_best)
+# Coefficients
+x <- as.matrix(glmnet_pre_best$beta)
+plot(glmnet_pre_best, xvar = "lambda")
+```
+
+```{r}
+# Using the best mixture and best lambda (elastic net)
+glmnet_best <- glmnet(Xtrain, ytrain,
+                    family = "gaussian",
+                    lambda = P_best,
+                    alpha = M_best)
+
+# make predictions for export
+predictions_glmnet <- predict(glmnet_best, newx = as.matrix(data_test[,-c(1,28)]))
+
+# visualise
+beta <- data.frame(Predictors = c("Intercept", colnames(Xtrain)),
+                   Beta = as.vector(coef(glmnet_best)))
+names(beta)[2] <- "Beta"
+
+# Sort by the highest magnitude of beta
+beta <- beta[order(abs(beta$Beta), decreasing = TRUE), ]
+ggplot(beta, aes(x = Predictors, y = Beta)) +
+  geom_bar(stat = "identity", color = "midnightblue", fill = "midnightblue") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 0.9, vjust = 0.2),
+        panel.grid.major = element_blank()) +
+  scale_x_discrete(limits = beta$Predictors) +
+  ggtitle("Slope Coefficient for Each Regressor") +
+  labs(x = "Predictor", y = "Beta Coefficient")
+```
+
+**Interpretation**
+As expected, "classical" is a strong negatively correlated predictor for song popularity. The other predictors "explicit" and "danceability" are also statistically significant, although their effect is positive but not as large in magnitude. The R-Squared is incredibly low, supporting the initial hypothesis that there is no strong linear relation between the predictors and outcome of interest: popularity. 
+
+
+**Comparison to baseline model**
+The elastic net model gives better accuracy. This can be seen through the lower RMSE. The R-Squared has also improved from 0.03 to 0.11. Despite this, it is still very low. This agrees, to some extent, with the correlation plot that perhaps the relationship is non-linear. Therefore, one of the models that followed that was complex and non-linear: Random forest ?? (sentence not finished)
+
+### Export
+
+```{r}
+write.csv(predictions_glmnet, "2.interpretable_glmnet.csv", row.names=FALSE)
+```
